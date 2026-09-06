@@ -6,4 +6,5 @@ venv/
 nickel.db
 nickel.db-shm
 nickel.db-wal
+nickel-store.json
 .DS_Store
