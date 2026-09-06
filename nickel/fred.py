@@ -19,7 +19,7 @@ class FredService:
         cached = self._cache.get(series)
         if cached is not None and (time.time() - self._cache_time.get(series, 0)) < self._ttl:
             return cached
-        resp = requests.get(config.FRED_CSV_BASE.format(series=series), headers=UA, timeout=30)
+        resp = requests.get(config.FRED_CSV_BASE.format(series=series), headers=UA, timeout=(3.05, 8))
         resp.raise_for_status()
         points = []
         reader = csv.reader(io.StringIO(resp.text))

@@ -7,7 +7,10 @@ from . import config, db
 
 
 class NickelService:
-    def __init__(self, cache_ttl=config.CACHE_TTL_SECONDS):
+    def __init__(self, sheet_service=None, cache_ttl=config.CACHE_TTL_SECONDS):
+        from .sheet import SheetService
+
+        self._sheet = sheet_service or SheetService()
         self._latest_cache = None
         self._cache_time = 0.0
         self._cache_ttl = cache_ttl
@@ -17,9 +20,7 @@ class NickelService:
         return datetime.date.today().isoformat()
 
     def fetch_latest(self):
-        from .sheet import SheetService
-
-        rows = SheetService().get_rows()
+        rows = self._sheet.get_rows()
         valid = [r for r in rows if r.get("_price") is not None]
         if not valid:
             raise ValueError("Google Sheet 中沒有有效的鎳價資料")

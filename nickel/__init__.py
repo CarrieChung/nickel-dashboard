@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor, as_completed
+
 from flask import Flask, render_template, jsonify, request
 
 from . import config, db
@@ -9,9 +11,9 @@ from .services import NickelService
 from .sheet import NewsService, SheetService
 from .static_data import RECENT, DRIVERS
 
-service = NickelService()
-monitor = DailyMonitor(service)
 sheet_service = SheetService()
+service = NickelService(sheet_service=sheet_service)
+monitor = DailyMonitor(service)
 news_service = NewsService()
 fred_service = FredService()
 
@@ -44,31 +46,54 @@ def create_app():
         force = request.args.get("force") == "1"
         payload = {"success": True}
 
-        try:
-            payload["sheet"] = sheet_service.summary(force=force)
-        except Exception as exc:
-            payload["sheet"] = {"ok": False, "error": str(exc)}
+        def load_sheet():
+            try:
+                return sheet_service.summary(force=force)
+            except Exception as exc:
+                return {"ok": False, "error": str(exc)}
 
-        try:
-            payload["live"] = service.get_latest(force_refresh=force)
-        except Exception as exc:
-            payload["live"] = {"error": str(exc)}
+        def load_live():
+            try:
+                return service.get_latest(force_refresh=force)
+            except Exception as exc:
+                return {"error": str(exc)}
 
-        try:
-            payload["annual"] = annual_trend(fred_service.annual_with_current())
-        except Exception:
-            payload["annual"] = annual_trend()
+        def load_annual():
+            try:
+                return {
+                    "annual": annual_trend(fred_service.annual_with_current()),
+                    "recent": fred_service.recent(),
+                }
+            except Exception:
+                return {"annual": annual_trend(), "recent": RECENT}
 
-        try:
-            payload["recent"] = fred_service.recent()
-        except Exception:
-            payload["recent"] = RECENT
+        def load_news():
+            try:
+                return news_service.get_news(force=force)
+            except Exception as exc:
+                return {"error": str(exc)}
+
+        tasks = {
+            "sheet": load_sheet,
+            "live": load_live,
+            "annual": load_annual,
+            "news": load_news,
+        }
+        with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
+            futures = {pool.submit(fn): key for key, fn in tasks.items()}
+            for future in as_completed(futures):
+                key = futures[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = {"error": str(exc)}
+                if key == "annual":
+                    payload["annual"] = result.get("annual")
+                    payload["recent"] = result.get("recent")
+                else:
+                    payload[key] = result
+
         payload["drivers"] = DRIVERS
-
-        try:
-            payload["news"] = news_service.get_news(force=force)
-        except Exception as exc:
-            payload["news"] = {"error": str(exc)}
 
         history = service.get_history()
         payload["monitor"] = {

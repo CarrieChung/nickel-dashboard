@@ -33,7 +33,7 @@ class SheetService:
         ):
             return self._cache
         url = f"{config.SHEET_PROXY}/{config.SHEET_ID}/{config.SHEET_TAB}"
-        resp = requests.get(url, headers=UA, timeout=25)
+        resp = requests.get(url, headers=UA, timeout=(3.05, 6))
         resp.raise_for_status()
         raw = resp.json()
         rows = [r for r in raw if r.get("date")]
@@ -102,7 +102,7 @@ class NewsService:
             f"https://news.google.com/rss/search?q={query}"
             "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
         )
-        resp = requests.get(url, headers=UA, timeout=40)
+        resp = requests.get(url, headers=UA, timeout=(3.05, 10))
         resp.raise_for_status()
         items = self._parse_rss(resp.text)
         self._cache = items
