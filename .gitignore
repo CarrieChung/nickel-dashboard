@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+nickel.db
+nickel.db-shm
+nickel.db-wal
+.DS_Store

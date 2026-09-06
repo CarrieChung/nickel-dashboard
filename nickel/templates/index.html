@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>鎳價追蹤 Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="/static/vendor/chart.umd.min.js"></script>
+<style>
+  :root{
+    --bg:#0f1420; --panel:#1a2130; --panel2:#232c3f; --border:#2c3648;
+    --text:#e8ecf3; --muted:#8a95a8; --faint:#5b636b;
+    --accent:#ffb020; --green:#26d07c; --red:#ff5b6a;
+    --teal:#4fd1c5; --rust:#e2703a; --metal:#cfd6db;
+  }
+  *{box-sizing:border-box; margin:0; padding:0;}
+  body{
+    background:
+      radial-gradient(1200px 600px at 15% -10%, rgba(79,209,197,0.05), transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, rgba(255,176,32,0.05), transparent 55%),
+      var(--bg);
+    color:var(--text); font-family:'IBM Plex Sans', sans-serif; padding:26px 20px 60px; min-height:100vh;
+  }
+  .wrap{max-width:1200px; margin:0 auto;}
+  header{display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:14px; padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid var(--border);}
+  .brand-eyebrow{font-family:'IBM Plex Mono', monospace; font-size:11px; letter-spacing:.16em; text-transform:uppercase; color:var(--teal); margin-bottom:6px;}
+  h1{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:30px; letter-spacing:-0.01em;}
+  h1 .dot{color:var(--accent);}
+  .sub{color:var(--muted); font-size:13px; margin-top:6px;}
+  .updated{font-family:'IBM Plex Mono', monospace; font-size:12px; color:var(--faint); text-align:right;}
+  .updated b{color:var(--muted); font-weight:500;}
+
+  .price-strip{background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:14px; padding:20px 24px; display:flex; align-items:center; gap:28px; flex-wrap:wrap; margin-bottom:20px;}
+  .price-block .label{color:var(--muted); font-size:12.5px; margin-bottom:6px;}
+  .price-block .value{font-family:'IBM Plex Mono', monospace; font-size:42px; font-weight:700;}
+  .price-block .change{font-size:14px; font-weight:600;}
+  .up{color:var(--green);} .down{color:var(--red);} .flat{color:var(--muted);}
+  .teal{color:var(--teal);} .rust{color:var(--rust);}
+  .stat{text-align:center; padding:0 14px; border-left:1px solid var(--border);}
+  .stat .label{color:var(--muted); font-size:11.5px;}
+  .stat .value{font-family:'IBM Plex Mono', monospace; font-size:19px; font-weight:600; margin-top:4px;}
+  .monitor-pill{margin-left:auto; font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--teal);}
+  .monitor-pill .dot{display:inline-block; width:7px;height:7px;border-radius:50%;background:var(--teal);margin-right:6px;animation:pulse 1.6s infinite;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.35;}}
+
+  .grid{display:grid; grid-template-columns:1.15fr 1fr; gap:20px;}
+  @media (max-width:860px){ .grid{grid-template-columns:1fr;} }
+  .panel{background:linear-gradient(180deg,var(--panel),var(--panel2)); border:1px solid var(--border); border-radius:14px; padding:20px 22px;}
+  .panel h2{font-family:'Space Grotesk',sans-serif; font-size:15px; font-weight:600; color:var(--metal); margin-bottom:4px;}
+  .panel .desc{color:var(--faint); font-size:12.5px; margin-bottom:14px;}
+  .wide{grid-column:1 / -1;}
+  .chart-box{position:relative; width:100%;}
+  .legend-row{display:flex; gap:16px; margin-top:10px; flex-wrap:wrap;}
+  .legend-item{display:flex; align-items:center; gap:6px; font-size:11.5px; color:var(--muted); font-family:'IBM Plex Mono',monospace;}
+  .swatch{width:9px;height:9px;border-radius:2px;}
+
+  .drivers{display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-top:16px;}
+  @media (max-width:600px){ .drivers{grid-template-columns:1fr;} }
+  .driver{border-left:2px solid var(--teal); padding-left:12px;}
+  .driver.rust{border-left-color:var(--rust);}
+  .driver .k{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--faint); text-transform:uppercase; letter-spacing:.06em;}
+  .driver .v{font-size:13px; color:var(--metal); margin-top:4px; line-height:1.55;}
+
+  .news-list{display:flex; flex-direction:column; gap:2px;}
+  .news-item{padding:12px 0; border-bottom:1px solid var(--border);}
+  .news-item:last-child{border-bottom:none;}
+  .news-item a{color:var(--metal); text-decoration:none; font-size:13.5px; line-height:1.5;}
+  .news-item a:hover{color:var(--teal);}
+  .news-meta{font-family:'IBM Plex Mono',monospace; font-size:11px; color:var(--faint); margin-top:4px;}
+
+  .btn-refresh{margin-top:16px; display:inline-flex; align-items:center; gap:8px; background:var(--panel2); border:1px solid var(--border); color:var(--metal); font-family:'IBM Plex Mono',monospace; font-size:12px; padding:9px 14px; border-radius:8px; cursor:pointer; transition:border-color .15s;}
+  .btn-refresh:hover{border-color:var(--accent); color:var(--accent);}
+  .btn-refresh:disabled{opacity:.5; cursor:progress;}
+  .spin{width:11px;height:11px;border-radius:50%;border:2px solid var(--faint);border-top-color:var(--accent);animation:spin .7s linear infinite;display:none;}
+  .spin.on{display:inline-block;}
+  @keyframes spin{to{transform:rotate(360deg);}}
+
+  .status-line{font-size:12px; color:var(--faint); margin-top:6px;}
+  .loading{color:var(--muted); padding:40px; text-align:center;}
+  .error{color:var(--red); padding:24px; text-align:center;}
+  footer{margin-top:30px; padding-top:18px; border-top:1px solid var(--border); color:var(--faint); font-size:11.5px; line-height:1.8;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <div class="brand-eyebrow">LME NI · USD / Tonne</div>
+      <h1>鎳價追蹤 <span class="dot">◆</span> Dashboard</h1>
+      <div class="sub">每日錨定 Google Sheet 記錄，結合即時鎳價與市場新聞</div>
+    </div>
+    <div class="updated">最後更新<br><b id="updatedTime">載入中…</b></div>
+  </header>
+
+  <div class="price-strip">
+    <div class="price-block">
+      <div class="label">最新鎳價 (美元/噸)</div>
+      <div class="value" id="lastPrice">—</div>
+      <div class="change" id="lastChange">—</div>
+    </div>
+    <div class="stat"><div class="label">區間最高</div><div class="value up" id="maxPrice">—</div></div>
+    <div class="stat"><div class="label">區間最低</div><div class="value down" id="minPrice">—</div></div>
+    <div class="stat"><div class="label">區間漲幅</div><div class="value" id="rangeChange">—</div></div>
+    <div class="stat"><div class="label">漲跌天數</div><div class="value" id="upDownDays">—</div></div>
+    <div class="stat"><div class="label">平均每日變動</div><div class="value" id="avgChange">—</div></div>
+    <div class="monitor-pill"><span class="dot"></span><span id="monitorStatus">監控讀取中…</span></div>
+  </div>
+
+  <div class="grid">
+    <div class="panel wide">
+      <h2>鎳價走勢（自首個交易日 · Google Sheet 每日記錄）</h2>
+      <div class="desc">直接讀取你 Google Sheet「鎳價每日記錄」的價格，折線自第一天開始，每日日期以 MM-DD 標示。</div>
+      <div class="chart-box" style="height:320px;" id="logBox"><canvas id="logCanvas"></canvas></div>
+      <div class="legend-row"><div class="legend-item"><span class="swatch" style="background:var(--accent)"></span>鎳價 (USD/t)</div></div>
+      <button class="btn-refresh" id="refreshBtn" onclick="refreshAll()"><span class="spin" id="spinner"></span><span id="refreshLabel">重新讀取資料</span></button>
+      <div class="status-line" id="logStatus"></div>
+    </div>
+
+    <div class="panel">
+      <h2>歷年均價走勢（1992–2026）</h2>
+      <div class="desc">IMF 全球鎳價年均價（FRED／聖路易斯聯儲）＋ 線性外插</div>
+      <div class="chart-box" style="height:230px;"><canvas id="annualChart"></canvas></div>
+      <div class="legend-row"><div class="legend-item"><span class="swatch" style="background:var(--metal)"></span>年均價</div><div class="legend-item"><span class="swatch" style="background:var(--accent)"></span>線性外插</div></div>
+    </div>
+
+    <div class="panel">
+      <h2>近期走勢（近 14 個月）</h2>
+      <div class="desc">IMF 全球鎳價月均價（FRED／聖路易斯聯儲）</div>
+      <div class="chart-box" style="height:230px;"><canvas id="recentChart"></canvas></div>
+    </div>
+
+    <div class="panel wide">
+      <h2>簡易趨勢分析（僅供參考，非投資建議）</h2>
+      <div class="desc">以 IMF／FRED 歷年均價做線性外插，觀察長期價格區間，非精確預測模型</div>
+      <div class="chart-box" style="height:220px;"><canvas id="trendChart"></canvas></div>
+      <div class="drivers" id="drivers"></div>
+    </div>
+
+    <div class="panel wide">
+      <h2>最新市場新聞</h2>
+      <div class="desc">Google 新聞即時彙整（鎳價 / LME）</div>
+      <div class="news-list" id="newsList"><div class="loading">載入中…</div></div>
+    </div>
+  </div>
+
+  <footer>
+    「鎳價走勢」與「最新鎳價」直接讀取 Google Sheet「鎳價每日記錄」（每日 18:00 自動更新），是最準確的第一手數據。「歷年均價走勢」「近期走勢」與「簡易趨勢分析」採用 IMF 全球鎳價資料（經 FRED／聖路易斯聯儲 PNICKUSDA、PNICKUSDM 系列）。本頁由 Flask 後端自動讀取，不構成任何投資、採購或財務建議。
+  </footer>
+</div>
+
+<script>
+const ChartOK = typeof Chart !== 'undefined' && !!window.Chart;
+if(ChartOK){
+  Chart.defaults.font.family = "'IBM Plex Mono', monospace";
+  Chart.defaults.color = '#8a95a8';
+  Chart.defaults.font.size = 11;
+}
+const gridColor = 'rgba(255,255,255,0.06)';
+const fmt = v => (v==null?'--':Number(v).toLocaleString('en-US',{maximumFractionDigits:0}));
+let annualChart, recentChart, trendChart, logChart;
+
+function newChartOn(canvasId, config){
+  const cv = document.getElementById(canvasId);
+  if(!cv) return null;
+  const old = Chart.getChart(cv);
+  if(old) old.destroy();
+  const fresh = document.createElement('canvas');
+  fresh.id = canvasId;
+  cv.parentNode.replaceChild(fresh, cv);
+  return new Chart(fresh, config);
+}
+
+function renderAnnual(d){ if(!d || !ChartOK) return; try { const labels=d.labels, actual=d.actual, trend=d.trend;
+  annualChart = newChartOn('annualChart', { type:'bar',
+    data:{ labels, datasets:[
+      { type:'bar', label:'年均價', data:actual, backgroundColor: actual.map((_,i)=> i===actual.length-1 ? 'rgba(255,176,32,0.85)' : 'rgba(207,214,219,0.55)'), borderRadius:4, maxBarThickness:26 },
+      { type:'line', label:'線性外插', data:trend, borderColor:'#f0b429', borderDash:[6,4], pointRadius:0, borderWidth:2 } ]},
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=>' $'+c.parsed.y.toLocaleString()+' /t' } } },
+      scales:{ x:{ grid:{display:false}, ticks:{font:{size:10}} }, y:{ grid:{color:gridColor}, ticks:{ callback:(v)=>'$'+(v/1000)+'k' } } } } });
+  } catch(e){ console.warn('annualChart:',e); } }
+function renderRecent(points){ if(!points || !ChartOK) return; try {
+  recentChart = newChartOn('recentChart', { type:'line',
+    data:{ labels:points.map(p=>p.label), datasets:[{ data:points.map(p=>p.price), borderColor:'#4fd1c5', backgroundColor:'rgba(79,209,197,0.12)', pointBackgroundColor:'#4fd1c5', pointRadius:3.5, borderWidth:2, tension:0.35, fill:true }] },
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=>' $'+c.parsed.y.toLocaleString()+' /t' } } },
+      scales:{ x:{ grid:{display:false} }, y:{ grid:{color:gridColor}, ticks:{ callback:(v)=>'$'+(v/1000)+'k' } } } } });
+  } catch(e){ console.warn('recentChart:',e); } }
+function renderTrendTr(d){ if(!d || !ChartOK) return; try {
+  trendChart = newChartOn('trendChart', { type:'line',
+    data:{ labels:d.labels, datasets:[
+      { label:'實際年均價', data:d.actual, borderColor:'#cfd6db', backgroundColor:'#cfd6db', pointRadius:3, borderWidth:2, tension:0.3 },
+      { label:'線性外插趨勢', data:d.trend, borderColor:'#f0b429', borderDash:[6,4], pointRadius:0, borderWidth:2 } ]},
+    options:{ responsive:true, maintainAspectRatio:false, plugins:{ legend:{ labels:{ boxWidth:10,boxHeight:10,color:'#8a95a8' } }, tooltip:{ callbacks:{ label:(c)=>' '+c.dataset.label+': $'+c.parsed.y.toLocaleString() } } },
+      scales:{ x:{ grid:{display:false} }, y:{ grid:{color:gridColor}, ticks:{ callback:(v)=>'$'+(v/1000)+'k' } } } } });
+  } catch(e){ console.warn('trendChart:',e); } }
+
+function renderDrivers(drivers){ if(!drivers) return; const box=document.getElementById('drivers');
+  box.innerHTML = drivers.map(dr=>{ const cls=(dr.kind==='risk'||dr.kind==='limit')?'driver rust':'driver';
+    return `<div class="${cls}"><div class="k">${dr.key}</div><div class="v">${dr.value}</div></div>`; }).join(''); }
+
+function renderNews(news){ const box=document.getElementById('newsList');
+  if(news && news.error){ box.innerHTML='<div class="status-line">目前無法載入新聞。</div>'; return; }
+  if(!news || news.length===0){ box.innerHTML='<div class="status-line">暫無新聞。</div>'; return; }
+  box.innerHTML = news.map(n=>`
+    <div class="news-item"><a href="${n.link||'#'}" target="_blank" rel="noopener">${n.title}</a>
+    <div class="news-meta">${n.source||''}${n.published?' · '+n.published:''}</div></div>`).join(''); }
+
+function renderSheet(s){ if(!s) return;
+  if(s.ok){
+    document.getElementById('lastPrice').textContent = fmt(s.today.price);
+    document.getElementById('updatedTime').textContent = s.today.date;
+    const c=s.today.change_pct, chEl=document.getElementById('lastChange');
+    const sign=c>=0?'+':'';
+    chEl.innerHTML = `今日漲跌 ${c==null?'—':sign+c.toFixed(2)+'%'} ${s.today.note?('· '+s.today.note):''}`;
+    chEl.className='change '+(c>0.005?'up':(c<-0.005?'down':'flat'));
+
+    const prices=s.log.map(e=>e.price); const min=s.range.min, max=s.range.max;
+    document.getElementById('maxPrice').textContent=fmt(max);
+    document.getElementById('minPrice').textContent=fmt(min);
+    const first=prices[0], prange=(s.today.price-first)/first*100;
+    const r=document.getElementById('rangeChange'); r.textContent=(prange>=0?'+':'')+prange.toFixed(2)+'%'; r.className='value '+(prange>=0?'up':'down');
+    const ups=s.log.filter((e,i)=>i>0&&e.price>s.log[i-1].price).length;
+    const downs=s.log.filter((e,i)=>i>0&&e.price<s.log[i-1].price).length;
+    document.getElementById('upDownDays').textContent=`${ups}↑ / ${downs}↓`;
+    const changes=s.log.map(e=>e.change).filter(c=>c!=null);
+    const avgChg=changes.length?changes.reduce((a,b)=>a+b,0)/changes.length:null;
+    const avgEl=document.getElementById('avgChange');
+    avgEl.textContent=(avgChg==null)?'—':(avgChg>=0?'+':'')+avgChg.toFixed(2)+'%';
+    avgEl.className='value '+(avgChg>0.005?'up':(avgChg<-0.005?'down':'flat'));
+    document.getElementById('logStatus').textContent=`記錄區間：${s.log[0].date} ~ ${s.log[s.log.length-1].date}（共 ${s.rows} 筆）`;
+
+    if(ChartOK){
+      try {
+        const fullDates = s.log.map(e=>e.date);
+        logChart = newChartOn('logCanvas', { type:'line',
+      data:{ labels:fullDates.map(d=>d.slice(5)), datasets:[
+        { label:'鎳價', data:s.log.map(e=>e.price), borderColor:'#ffb020', backgroundColor:'rgba(255,176,32,0.10)', pointRadius:2.5, pointBackgroundColor:'#ffb020', borderWidth:2.5, tension:0.3, fill:true } ]},
+      plugins:[ { id:'yearFloor', afterDraw(chart){ const c=chart.ctx, x=chart.scales.x, a=chart.chartArea;
+        if(!x || !a) return;
+        const yrs=[]; let last=null;
+        fullDates.forEach((d,i)=>{ const y=d.slice(0,4); if(y!==last){ yrs.push({year:y,start:i}); last=y; } });
+        if(yrs.length<2) return;
+        yrs[yrs.length-1].end=fullDates.length-1;
+        for(let g=0;g<yrs.length-1;g++){ yrs[g].end=yrs[g+1].start-1; }
+        c.save();
+        c.setLineDash([2,3]); c.strokeStyle='rgba(138,149,168,0.28)'; c.lineWidth=1;
+        for(let g=1;g<yrs.length;g++){ const px=(x.getPixelForValue(yrs[g].start-1)+x.getPixelForValue(yrs[g].start))/2;
+          c.beginPath(); c.moveTo(px,a.top); c.lineTo(px,a.bottom); c.stroke(); }
+        c.setLineDash([]); c.fillStyle='rgba(138,149,168,0.95)'; c.font='10px "IBM Plex Mono", monospace'; c.textAlign='center'; c.textBaseline='alphabetic';
+        for(const g of yrs){ const x1=g.start===0?a.left:(x.getPixelForValue(g.start-1)+x.getPixelForValue(g.start))/2;
+          const x2=g.end===fullDates.length-1?a.right:(x.getPixelForValue(g.end)+x.getPixelForValue(g.end+1))/2;
+          c.fillText(g.year+' 年',(x1+x2)/2,a.bottom+11); }
+        c.restore(); } } ],
+      options:{ responsive:true, maintainAspectRatio:false, layout:{ padding:{ bottom:18 } },
+        plugins:{ legend:{display:false}, tooltip:{ callbacks:{ label:(c)=>{ const f=fullDates[c.dataIndex]; return (f?f+' · ':'')+'$'+c.parsed.y.toLocaleString(); } } } },
+        scales:{ x:{ grid:{display:false}, ticks:{ maxTicksLimit:30, maxRotation:0, minRotation:0, color:'#8a95a8', font:{size:10} } }, y:{ grid:{color:gridColor}, ticks:{ callback:(v)=>'$'+(v/1000)+'k' } } } } });
+      } catch(e){ console.warn('logChart:', e && (e.stack||e.message)); }
+      } else {
+        document.getElementById('logBox').innerHTML='<div class="loading">此瀏覽器無法繪製圖表，但下方數值已更新。</div>';
+      }
+  } else {
+    document.getElementById('logBox').innerHTML=`<div class="error">無法讀取 Google Sheet：${s.error||''}</div>`;
+    document.getElementById('updatedTime').textContent='無法讀取';
+  }
+}
+
+function renderMonitor(m){ const b=document.getElementById('monitorStatus');
+  if(m) b.textContent = `每日自動監控：${m.running?'運作中':'已停止'} · ${m.total_records} 筆`+(m.recorded_today?' · 今日已記錄':''); }
+
+async function loadDashboard(force){
+  const res = await fetch('/api/dashboard'+(force?'?force=1':''));
+  const d = await res.json();
+  const safe = fn => { try { fn(); } catch(e){ console.warn(e); } };
+  safe(()=>renderSheet(d.sheet));
+  safe(()=>renderAnnual(d.annual));
+  safe(()=>renderRecent(d.recent));
+  safe(()=>renderTrendTr(d.annual));
+  safe(()=>renderDrivers(d.drivers));
+  safe(()=>renderNews(d.news));
+  safe(()=>renderMonitor(d.monitor));
+}
+async function refreshAll(){
+  document.getElementById('refreshBtn').disabled=true;
+  document.getElementById('spinner').classList.add('on');
+  document.getElementById('refreshLabel').textContent='讀取中…';
+  await loadDashboard(true);
+  document.getElementById('refreshBtn').disabled=false;
+  document.getElementById('spinner').classList.remove('on');
+  document.getElementById('refreshLabel').textContent='重新讀取資料';
+}
+window.addEventListener('DOMContentLoaded', ()=>{ loadDashboard(); setInterval(loadDashboard,60000); });
+</script>
+</body>
+</html>

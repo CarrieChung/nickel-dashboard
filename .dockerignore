@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+*.log
+nickel.db
+nickel.db-wal
+nickel.db-shm
+data/
+.git/
