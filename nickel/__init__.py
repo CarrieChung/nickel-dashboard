@@ -1,4 +1,5 @@
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+from concurrent.futures import ThreadPoolExecutor, wait
 
 from flask import Flask, render_template, jsonify, request
 
@@ -17,6 +18,19 @@ monitor = DailyMonitor(service)
 news_service = NewsService()
 fred_service = FredService()
 
+DASHBOARD_BUDGET_SECONDS = 45
+
+
+def _call_with_timeout(fn, timeout):
+    """Run fn with a hard wall-clock cap, even if DNS/connect stalls."""
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(fn).result(timeout=timeout)
+    except BaseException:
+        return None
+    finally:
+        pool.shutdown(wait=False)
+
 
 def create_app():
     app = Flask(__name__)
@@ -31,11 +45,10 @@ def create_app():
     @app.route("/api/nickel")
     def api_nickel():
         force = request.args.get("force") == "1"
-        try:
-            quote = service.get_latest(force_refresh=force)
-            return jsonify({"success": True, "data": quote})
-        except Exception as exc:
-            return jsonify({"success": False, "error": str(exc)}), 500
+        quote = _call_with_timeout(lambda: service.get_latest(force_refresh=force), 15)
+        if quote is None:
+            return jsonify({"success": False, "error": "資料來源回應逾時，請稍後再試"}), 502
+        return jsonify({"success": True, "data": quote})
 
     @app.route("/api/history")
     def api_history():
@@ -44,34 +57,29 @@ def create_app():
     @app.route("/api/dashboard")
     def api_dashboard():
         force = request.args.get("force") == "1"
-        payload = {"success": True}
+        payload = {
+            "success": True,
+            "sheet": {"ok": False, "error": "來源逾時"},
+            "live": {"error": "來源逾時"},
+            "annual": annual_trend(),
+            "recent": RECENT,
+            "news": {"error": "來源逾時"},
+        }
 
         def load_sheet():
-            try:
-                return sheet_service.summary(force=force)
-            except Exception as exc:
-                return {"ok": False, "error": str(exc)}
+            return sheet_service.summary(force=force)
 
         def load_live():
-            try:
-                return service.get_latest(force_refresh=force)
-            except Exception as exc:
-                return {"error": str(exc)}
+            return service.get_latest(force_refresh=force)
 
         def load_annual():
-            try:
-                return {
-                    "annual": annual_trend(fred_service.annual_with_current()),
-                    "recent": fred_service.recent(),
-                }
-            except Exception:
-                return {"annual": annual_trend(), "recent": RECENT}
+            return {
+                "annual": annual_trend(fred_service.annual_with_current()),
+                "recent": fred_service.recent(),
+            }
 
         def load_news():
-            try:
-                return news_service.get_news(force=force)
-            except Exception as exc:
-                return {"error": str(exc)}
+            return news_service.get_news(force=force)
 
         tasks = {
             "sheet": load_sheet,
@@ -79,19 +87,32 @@ def create_app():
             "annual": load_annual,
             "news": load_news,
         }
-        with ThreadPoolExecutor(max_workers=len(tasks)) as pool:
-            futures = {pool.submit(fn): key for key, fn in tasks.items()}
-            for future in as_completed(futures):
-                key = futures[future]
-                try:
-                    result = future.result()
-                except Exception as exc:
-                    result = {"error": str(exc)}
-                if key == "annual":
-                    payload["annual"] = result.get("annual")
-                    payload["recent"] = result.get("recent")
-                else:
-                    payload[key] = result
+
+        pool = ThreadPoolExecutor(max_workers=len(tasks))
+        future_map = {pool.submit(fn): key for key, fn in tasks.items()}
+        started = time.monotonic()
+        pending = set(future_map)
+        try:
+            while pending:
+                remaining = DASHBOARD_BUDGET_SECONDS - (time.monotonic() - started)
+                if remaining <= 0:
+                    break
+                done, pending = wait(pending, timeout=min(remaining, 10))
+                for future in done:
+                    key = future_map[future]
+                    try:
+                        data = future.result()
+                    except BaseException:
+                        data = None
+                    if data is None:
+                        continue
+                    if key == "annual":
+                        payload["annual"] = data.get("annual", payload["annual"])
+                        payload["recent"] = data.get("recent", payload["recent"])
+                    else:
+                        payload[key] = data
+        finally:
+            pool.shutdown(wait=False)
 
         payload["drivers"] = DRIVERS
 
@@ -108,17 +129,17 @@ def create_app():
 
     @app.route("/api/annual")
     def api_annual():
-        try:
-            return jsonify({"success": True, "data": annual_trend(fred_service.annual_with_current())})
-        except Exception:
-            return jsonify({"success": True, "data": annual_trend()})
+        data = _call_with_timeout(lambda: annual_trend(fred_service.annual_with_current()), 30)
+        if data is None:
+            data = _call_with_timeout(annual_trend, 5)
+        return jsonify({"success": True, "data": data or annual_trend()})
 
     @app.route("/api/news")
     def api_news():
-        try:
-            return jsonify({"success": True, "data": news_service.get_news()})
-        except Exception as exc:
-            return jsonify({"success": False, "error": str(exc)}), 500
+        data = _call_with_timeout(news_service.get_news, 18)
+        if data is None:
+            return jsonify({"success": False, "error": "來源逾時，請稍後再試"}), 502
+        return jsonify({"success": True, "data": data})
 
     @app.route("/api/predict")
     def api_predict():
@@ -131,12 +152,10 @@ def create_app():
 
     @app.route("/api/daily/run", methods=["POST"])
     def api_daily_run():
-        try:
-            record = service.capture_today()
-            return jsonify({"success": True, "data": record})
-        except Exception as exc:
-            db.add_monitor_log("error", f"手動抓取失敗: {exc}")
-            return jsonify({"success": False, "error": str(exc)}), 500
+        record = _call_with_timeout(service.capture_today, 20)
+        if record is None:
+            return jsonify({"success": False, "error": "抓取逾時，請稍後再試"}), 502
+        return jsonify({"success": True, "data": record})
 
     @app.route("/api/monitor/status")
     def api_monitor_status():
