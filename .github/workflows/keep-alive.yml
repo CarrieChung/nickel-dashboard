@@ -1,0 +1,16 @@
+name: keep-alive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping dashboard
+        run: curl -fsS -o /dev/null -w "keep-alive ping: HTTP %{http_code}\n" --max-time 60 https://nickel-dashboard.onrender.com/
