@@ -10,6 +10,7 @@ PREDICT_DAYS = 30
 
 SHEET_ID = "1yebIFXkp7VdLkMstmtlY5hKTOqeWxs50RuU8yJ2yMdw"
 SHEET_TAB = "1"
+SHEET_CSV = "https://docs.google.com/spreadsheets/d/1yebIFXkp7VdLkMstmtlY5hKTOqeWxs50RuU8yJ2yMdw/export?format=csv"
 SHEET_PROXY = "https://opensheet.elk.sh"
 NEWS_QUERY = "nickel price LME"
 NEWS_MAX = 6

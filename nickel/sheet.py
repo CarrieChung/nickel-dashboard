@@ -1,3 +1,5 @@
+import csv
+import io
 import re
 import time
 from email.utils import parsedate_to_datetime
@@ -19,11 +21,41 @@ def _parse_number(raw):
         return None
 
 
+def _normalize_rows(raw):
+    rows = []
+    for r in raw:
+        if not r.get("date"):
+            continue
+        rows.append(
+            {
+                "date": r["date"],
+                "price_usd_per_ton": r.get("price_usd_per_ton"),
+                "change_pct": r.get("change_pct"),
+                "note": r.get("note", ""),
+                "_price": _parse_number(r.get("price_usd_per_ton")),
+                "_change": _parse_number(r.get("change_pct")),
+            }
+        )
+    rows.sort(key=lambda r: r["date"])
+    return rows
+
+
 class SheetService:
     def __init__(self):
         self._cache = None
         self._cache_time = 0.0
         self._cache_ttl = 300
+
+    def _fetch_csv(self):
+        resp = requests.get(config.SHEET_CSV, headers=UA, timeout=(3.05, 6))
+        resp.raise_for_status()
+        return list(csv.DictReader(io.StringIO(resp.text)))
+
+    def _fetch_proxy(self):
+        url = f"{config.SHEET_PROXY}/{config.SHEET_ID}/{config.SHEET_TAB}"
+        resp = requests.get(url, headers=UA, timeout=(3.05, 6))
+        resp.raise_for_status()
+        return resp.json()
 
     def get_rows(self, force=False):
         if (
@@ -32,15 +64,19 @@ class SheetService:
             and (time.time() - self._cache_time) < self._cache_ttl
         ):
             return self._cache
-        url = f"{config.SHEET_PROXY}/{config.SHEET_ID}/{config.SHEET_TAB}"
-        resp = requests.get(url, headers=UA, timeout=(3.05, 6))
-        resp.raise_for_status()
-        raw = resp.json()
-        rows = [r for r in raw if r.get("date")]
-        for r in rows:
-            r["_price"] = _parse_number(r.get("price_usd_per_ton"))
-            r["_change"] = _parse_number(r.get("change_pct"))
-        rows.sort(key=lambda r: r["date"])
+        raw = None
+        last_error = None
+        for fetcher in (self._fetch_csv, self._fetch_proxy):
+            try:
+                raw = fetcher()
+                break
+            except Exception as exc:
+                last_error = exc
+        if raw is None:
+            if self._cache is not None:
+                return self._cache
+            raise last_error
+        rows = _normalize_rows(raw)
         self._cache = rows
         self._cache_time = time.time()
         return rows
@@ -102,12 +138,19 @@ class NewsService:
             f"https://news.google.com/rss/search?q={query}"
             "&hl=zh-TW&gl=TW&ceid=TW:zh-Hant"
         )
-        resp = requests.get(url, headers=UA, timeout=(3.05, 10))
-        resp.raise_for_status()
-        items = self._parse_rss(resp.text)
-        self._cache = items
-        self._cache_time = time.time()
-        return items
+        last_error = None
+        for _ in range(2):
+            try:
+                resp = requests.get(url, headers=UA, timeout=(3.05, 10))
+                resp.raise_for_status()
+                items = self._parse_rss(resp.text)
+                self._cache = items
+                self._cache_time = time.time()
+                return items
+            except Exception as exc:
+                last_error = exc
+                time.sleep(0.5)
+        raise last_error
 
     @staticmethod
     def _parse_rss(xml):
