@@ -2,11 +2,8 @@ import csv
 import io
 import time
 
-import requests
-
 from . import config
-
-UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+from .net import fetch
 
 
 class FredService:
@@ -19,10 +16,10 @@ class FredService:
         cached = self._cache.get(series)
         if cached is not None and (time.time() - self._cache_time.get(series, 0)) < self._ttl:
             return cached
-        resp = requests.get(config.FRED_CSV_BASE.format(series=series), headers=UA, timeout=(3.05, 8))
-        resp.raise_for_status()
+        body = fetch(config.FRED_CSV_BASE.format(series=series), timeout=8)
+        text = body.decode("utf-8")
         points = []
-        reader = csv.reader(io.StringIO(resp.text))
+        reader = csv.reader(io.StringIO(text))
         next(reader, None)
         for row in reader:
             if len(row) < 2:

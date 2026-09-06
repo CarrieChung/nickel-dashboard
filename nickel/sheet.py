@@ -5,11 +5,8 @@ import time
 from email.utils import parsedate_to_datetime
 from urllib.parse import quote
 
-import requests
-
 from . import config
-
-UA = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"}
+from .net import fetch
 
 
 def _parse_number(raw):
@@ -47,15 +44,15 @@ class SheetService:
         self._cache_ttl = 300
 
     def _fetch_csv(self):
-        resp = requests.get(config.SHEET_CSV, headers=UA, timeout=(3.05, 6))
-        resp.raise_for_status()
-        return list(csv.DictReader(io.StringIO(resp.text)))
+        text = fetch(config.SHEET_CSV, timeout=6).decode("utf-8-sig")
+        return list(csv.DictReader(io.StringIO(text)))
 
     def _fetch_proxy(self):
         url = f"{config.SHEET_PROXY}/{config.SHEET_ID}/{config.SHEET_TAB}"
-        resp = requests.get(url, headers=UA, timeout=(3.05, 6))
-        resp.raise_for_status()
-        return resp.json()
+        body = fetch(url, timeout=6)
+        import json
+
+        return json.loads(body.decode("utf-8"))
 
     def get_rows(self, force=False):
         if (
@@ -141,9 +138,8 @@ class NewsService:
         last_error = None
         for _ in range(2):
             try:
-                resp = requests.get(url, headers=UA, timeout=(3.05, 10))
-                resp.raise_for_status()
-                items = self._parse_rss(resp.text)
+                body = fetch(url, timeout=10)
+                items = self._parse_rss(body.decode("utf-8", "ignore"))
                 self._cache = items
                 self._cache_time = time.time()
                 return items

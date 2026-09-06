@@ -1,14 +1,21 @@
 import sqlite3
 import datetime
+from contextlib import contextmanager
 
 from . import config
 
 
+@contextmanager
 def _connect():
     conn = sqlite3.connect(config.DB_PATH)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    try:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA busy_timeout=5000")
+        yield conn
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def init_db():
