@@ -6,6 +6,7 @@ CURRENCY = "USD"
 UNIT = "mt"
 CACHE_TTL_SECONDS = 300
 DB_PATH = os.environ.get("NICKEL_DB_PATH", "nickel.db")
+STORE_PATH = os.environ.get("NICKEL_STORE_PATH", "nickel-store.json")
 PREDICT_DAYS = 30
 
 SHEET_ID = "1yebIFXkp7VdLkMstmtlY5hKTOqeWxs50RuU8yJ2yMdw"

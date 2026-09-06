@@ -1,97 +1,91 @@
-import sqlite3
 import datetime
-from contextlib import contextmanager
+import json
+import os
+import threading
+import time
 
 from . import config
 
+_lock = threading.RLock()
+_daily = {}
+_logs = []
+_dirty = False
+_saver = None
 
-_lock = __import__("threading").Lock()
+
+def _save():
+    try:
+        with _lock:
+            snapshot = {"daily": dict(_daily), "logs": list(_logs[-50:])}
+        with open(config.STORE_PATH, "w", encoding="utf-8") as fh:
+            json.dump(snapshot, fh, ensure_ascii=False, indent=1)
+    except Exception:
+        pass
 
 
-@contextmanager
-def _connect():
-    with _lock:
-        conn = sqlite3.connect(config.DB_PATH, timeout=2.0)
-        try:
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=DELETE")
-            conn.execute("PRAGMA busy_timeout=2000")
-            yield conn
-            conn.commit()
-        finally:
-            conn.close()
+def _saver_loop():
+    global _dirty
+    while True:
+        time.sleep(3)
+        if _dirty:
+            _dirty = False
+            _save()
+
+
+def _load():
+    try:
+        if not os.path.exists(config.STORE_PATH):
+            return
+        with open(config.STORE_PATH, "r", encoding="utf-8") as fh:
+            data = json.load(fh)
+        if isinstance(data, dict):
+            _daily.update(data.get("daily") or {})
+            _logs.extend(data.get("logs") or [])
+    except Exception:
+        pass
 
 
 def init_db():
-    with _connect() as conn:
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS nickel_daily (
-                date TEXT PRIMARY KEY,
-                spot REAL,
-                lme REAL,
-                currency TEXT,
-                unit TEXT,
-                created_at TEXT
-            )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS monitor_log (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_at TEXT,
-                status TEXT,
-                detail TEXT
-            )
-            """
-        )
+    global _saver
+    with _lock:
+        _load()
+        if _saver is None:
+            _saver = threading.Thread(target=_saver_loop, name="store-saver", daemon=True)
+            _saver.start()
 
 
 def get_daily_by_date(date_str):
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM nickel_daily WHERE date = ?", (date_str,)
-        ).fetchone()
-        return dict(row) if row else None
+    with _lock:
+        return _daily.get(date_str)
 
 
 def upsert_daily(record):
-    with _connect() as conn:
-        conn.execute(
-            """
-            INSERT INTO nickel_daily (date, spot, lme, currency, unit, created_at)
-            VALUES (:date, :spot, :lme, :currency, :unit, :created_at)
-            ON CONFLICT(date) DO UPDATE SET
-                spot = excluded.spot,
-                lme = excluded.lme,
-                currency = excluded.currency,
-                unit = excluded.unit,
-                created_at = excluded.created_at
-            """,
-            record,
-        )
+    global _dirty
+    with _lock:
+        _daily[record["date"]] = record
+        _dirty = True
 
 
 def list_daily():
-    with _connect() as conn:
-        rows = conn.execute(
-            "SELECT * FROM nickel_daily ORDER BY date ASC"
-        ).fetchall()
-        return [dict(r) for r in rows]
+    with _lock:
+        return [record for _, record in sorted(_daily.items())]
 
 
 def add_monitor_log(status, detail=""):
-    with _connect() as conn:
-        conn.execute(
-            "INSERT INTO monitor_log (run_at, status, detail) VALUES (?, ?, ?)",
-            (datetime.datetime.now().isoformat(timespec="seconds"), status, detail),
+    global _dirty
+    with _lock:
+        _logs.append(
+            {
+                "run_at": datetime.datetime.now().isoformat(timespec="seconds"),
+                "status": status,
+                "detail": detail,
+            }
         )
+        if len(_logs) > 50:
+            del _logs[:-50]
+        _dirty = True
 
 
 def last_monitor_log():
-    with _connect() as conn:
-        row = conn.execute(
-            "SELECT * FROM monitor_log ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        return dict(row) if row else None
+    with _lock:
+        return _logs[-1] if _logs else None
